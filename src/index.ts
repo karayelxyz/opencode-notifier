@@ -239,6 +239,16 @@ function getSessionIDFromEvent(event: unknown): string | null {
   return getStringField(properties, "sessionID")
 }
 
+function getPermissionIDFromEvent(event: unknown): string | null {
+  const properties = getNestedRecord(event, "properties")
+  const id = getStringField(properties, "id")
+  if (id) {
+    return id
+  }
+  const request = getNestedRecord(event, "properties", "request")
+  return getStringField(request, "id")
+}
+
 interface SessionLifecycleInfo {
   id: string | null
   title: string | null
@@ -538,7 +548,27 @@ export const NotifierPlugin: Plugin = async ({ client, directory }) => {
       if ((event as any).type === "permission.asked") {
         const sessionID = getSessionIDFromEvent(event)
         if (!shouldSuppressPermissionAlert(sessionID)) {
-          await handleEventWithElapsedTime(client, config, "permission", projectName, event)
+          const permissionID = getPermissionIDFromEvent(event)
+          if (permissionID) {
+            // Auto-approved requests are resolved immediately, so wait briefly
+            // and only notify when the request is still pending.
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            let stillPending = false
+            try {
+              const inner = (client as any)?._client || (client as any)?.session?._client
+              const listResponse = await inner?.get({ url: "/permission" })
+              const body = listResponse?.data ?? listResponse
+              const pendingList = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : []
+              stillPending = pendingList.some((p: { id?: string }) => p?.id === permissionID)
+            } catch {
+              stillPending = true
+            }
+            if (stillPending) {
+              await handleEventWithElapsedTime(client, config, "permission", projectName, event)
+            }
+          } else {
+            await handleEventWithElapsedTime(client, config, "permission", projectName, event)
+          }
         }
       }
 
