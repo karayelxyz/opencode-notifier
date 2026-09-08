@@ -553,13 +553,17 @@ export const NotifierPlugin: Plugin = async ({ client, directory }) => {
             // Auto-approved requests are resolved immediately, so wait briefly
             // and only notify when the request is still pending.
             await new Promise((resolve) => setTimeout(resolve, 300))
-            let stillPending = false
+            let stillPending = true
             try {
               const inner = (client as any)?._client || (client as any)?.session?._client
-              const listResponse = await inner?.get({ url: "/permission" })
-              const body = listResponse?.data ?? listResponse
-              const pendingList = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : []
-              stillPending = pendingList.some((p: { id?: string }) => p?.id === permissionID)
+              if (inner && typeof inner.get === "function") {
+                const listResponse = await inner.get({ url: "/permission" })
+                const body = listResponse?.data ?? listResponse
+                const pendingList = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : null
+                if (pendingList) {
+                  stillPending = pendingList.some((p: { id?: string }) => p?.id === permissionID)
+                }
+              }
             } catch {
               stillPending = true
             }
